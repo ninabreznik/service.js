@@ -19,27 +19,33 @@ const plans = []
 /*
 {
   feed: feedID,
-  publisher: 'userID',
+  supporter: 'userID',
   ranges: [[0, 5], [7, 55]] // default [{0, feed.length}],
 }
 */
 const contracts = []
 /*
 {
-  plan: planID,
-  ranges: [ [0, 3], [5, 10] ],
-  encoder: 'encoderID',
-  hoster: 'hosterID'
+plan: planID,
+ranges: selectedPlan.ranges,
+encoders: encoders.splice(0,3),
+hosters: hosters.splice(0,3),
+attestor: attestors.shift()
 }
 */
-const challenges = [] // Proof of storage
+const storageChallenges = [] // Storage Proof
 /*
 {
   contract: 'contractID', // get hoster and feed from contract
   chunks: [1,4,6]
 }
 */
-const attestations = [] // proof of retrievability
+
+const attestorJobs = []
+/*
+{ fnName: 'makePerformanceChallenge', opts: contractID ) }
+*/
+const performanceChallenges = [] // Performance Proof
 /*
 {
   attestor: 'attestorID',
@@ -56,9 +62,9 @@ const contract = {} //
 /******************************************************************************
   STATUS
 ******************************************************************************/
-const hosters = [] // user ids
-const encoders = [] // user ids
-const attestors = [] // user ids
+const idleHosters = [] // user ids
+const idleEncoders = [] // user ids
+const idleAttestors = [] // user ids
 
 const unhostedPlans = [] // ids of unhosted plans
 const hostedPlans = [] //when all contracts for certain plan are hosted => push planID to hostedPlans
@@ -69,19 +75,19 @@ const contractsHosted = [] // IDs of contracts where hosting is confirmed
 
 /////////////////////////////////////////////
 const challenging = []
-const challenge_reponses = []
+const storageChallenge_reponses = []
 /*
 {
-  challenge: 'challengeID',
+  storageChallenge: 'storageChallengeID',
   response: 'merkleProof'
 }
 */
 
 const attesting = []
-const attestation_reponses = []
+const performanceChallenge_reponses = []
 /*
 {
-  attestation: 'attestationID',
+  performanceChallenge: 'performanceChallengeID',
   response: {
     latency: 'foo',
     location: 'bar'
@@ -95,18 +101,19 @@ const DB = {
   feeds,
   plans,
   contracts,
-  challenges,
-  attestations,
+  storageChallenges,
+  performanceChallenges,
   // lookups
   userByAddress,
   feedByKey,
   // status
-  hosters,
-  encoders,
-  attestors,
+  idleHosters,
+  idleEncoders,
+  idleAttestors,
   unhostedPlans,
   hostedPlans,
   contractsEncoded,
   contractsHosted,
+  attestorJobs
 }
 module.exports = DB

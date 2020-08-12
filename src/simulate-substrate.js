@@ -10,22 +10,24 @@ module.exports = {
         getFeedByID,
         getPlanByID,
         getContractByID,
-        getChallengeByID,
-        getAttestationByID,
+        getStorageChallengeByID,
+        getPerformanceChallengeByID,
       }
     },
+    createType: (nonce) => nonce,
     tx: { datVerify: {
       newUser,
       registerEncoder,
       registerAttestor,
       registerHoster,
-      publishFeedAndPlan,
+      publishFeed,
+      publishPlan,
       encodingDone,
       hostingStarts,
-      requestProofOfStorageChallenge,
-      requestAttestation,
-      submitProofOfStorage,
-      submitAttestationReport
+      requestStorageChallenge,
+      requestPerformanceChallenge,
+      submitStorageChallenge,
+      submitPerformanceChallenge
       }
     }
   })
@@ -37,13 +39,14 @@ async function newUser (...args) { return { signAndSend: signAndSend.bind({ args
 async function registerEncoder (...args) { return { signAndSend: signAndSend.bind({ args, type: 'registerEncoder' }) } }
 async function registerAttestor (...args) { return { signAndSend: signAndSend.bind({ args, type: 'registerAttestor' }) } }
 async function registerHoster (...args) { return { signAndSend: signAndSend.bind({ args, type: 'registerHoster' }) } }
-async function publishFeedAndPlan (...args) { return { signAndSend: signAndSend.bind({ args, type: 'publishFeedAndPlan'}) } }
+async function publishFeed (...args) { return { signAndSend: signAndSend.bind({ args, type: 'publishFeed'}) } }
+async function publishPlan (...args) { return { signAndSend: signAndSend.bind({ args, type: 'publishPlan'}) } }
 async function encodingDone (...args) { return { signAndSend: signAndSend.bind({ args, type: 'encodingDone'}) } }
 async function hostingStarts (...args) { return { signAndSend: signAndSend.bind({ args, type: 'hostingStarts'}) } }
-async function requestProofOfStorageChallenge (...args) { return { signAndSend: signAndSend.bind({ args, type: 'requestProofOfStorageChallenge'}) } }
-async function requestAttestation (...args) { return { signAndSend: signAndSend.bind({ args, type: 'requestAttestation'}) } }
-async function submitProofOfStorage (...args) { return { signAndSend: signAndSend.bind({ args, type: 'submitProofOfStorage'}) } }
-async function submitAttestationReport (...args) { return { signAndSend: signAndSend.bind({ args, type: 'submitAttestationReport'}) } }
+async function requestStorageChallenge (...args) { return { signAndSend: signAndSend.bind({ args, type: 'requestStorageChallenge'}) } }
+async function requestPerformanceChallenge (...args) { return { signAndSend: signAndSend.bind({ args, type: 'requestPerformanceChallenge'}) } }
+async function submitStorageChallenge (...args) { return { signAndSend: signAndSend.bind({ args, type: 'submitStorageChallenge'}) } }
+async function submitPerformanceChallenge (...args) { return { signAndSend: signAndSend.bind({ args, type: 'submitPerformanceChallenge'}) } }
 /******************************************************************************
   QUERIES
 ******************************************************************************/
@@ -51,8 +54,8 @@ function getFeedByID (id) { return DB.feeds[id - 1] }
 function getUserByID (id) { return DB.users[id - 1] }
 function getPlanByID (id) { return DB.plans[id - 1] }
 function getContractByID (id) { return DB.contracts[id - 1] }
-function getChallengeByID (id) { return DB.challenges[id - 1] }
-function getAttestationByID (id) { return DB.attestations[id - 1] }
+function getStorageChallengeByID (id) { return DB.storageChallenges[id - 1] }
+function getPerformanceChallengeByID (id) { return DB.performanceChallenges[id - 1] }
 
 /******************************************************************************
   ROUTING (sign & send)
@@ -61,19 +64,20 @@ function signAndSend (signer, { nonce }, status) {
   const { type, args } = this
   status({ events: [], status: { isInBlock:1 } })
 
-  const user = _newUser(signer, { nonce }, status)
+  const user = _newUser(signer.address, { nonce }, status)
   if (!user) return console.error('NO USER', user)
 
-  if (type === 'publishFeedAndPlan') _publishFeedAndPlan(user, { nonce }, status, args)
+  if (type === 'publishFeed') _publishFeed(user, { nonce }, status, args)
+  else if (type === 'publishPlan') _publishPlan(user, { nonce }, status, args)
   else if (type === 'registerEncoder') _registerEncoder(user, { nonce }, status, args)
   else if (type === 'registerAttestor') _registerAttestor(user, { nonce }, status, args)
   else if (type === 'registerHoster') _registerHoster(user, { nonce }, status, args)
   else if (type === 'encodingDone') _encodingDone(user, { nonce }, status, args)
   else if (type === 'hostingStarts') _hostingStarts(user, { nonce }, status, args)
-  else if (type === 'requestProofOfStorageChallenge') _requestProofOfStorageChallenge(user, { nonce }, status, args)
-  else if (type === 'requestAttestation') _requestAttestation(user, { nonce }, status, args)
-  else if (type === 'submitProofOfStorage') _submitProofOfStorage(user, { nonce }, status, args)
-  else if (type === 'submitAttestationReport') _submitAttestationReport(user, { nonce }, status, args)
+  else if (type === 'requestStorageChallenge') _requestStorageChallenge(user, { nonce }, status, args)
+  else if (type === 'requestPerformanceChallenge') _requestPerformanceChallenge(user, { nonce }, status, args)
+  else if (type === 'submitStorageChallenge') _submitStorageChallenge(user, { nonce }, status, args)
+  else if (type === 'submitPerformanceChallenge') _submitPerformanceChallenge(user, { nonce }, status, args)
   // else if ...
 }
 /******************************************************************************
@@ -94,101 +98,140 @@ function _newUser (address, { nonce }, status) {
   }
   return user
 }
-async function _publishFeedAndPlan (user, { nonce }, status, args) {
-  // Publish FEED
+async function _publishFeed (user, { nonce }, status, args) {
   //@TODO check if feed already exists
-  const [ merkleRoot, plan ] = args
+  const [ merkleRoot ] = args
   const [key, {hashType, children}, signature] = merkleRoot
   const feed = { publickey: key.toString('hex'), meta: { signature, hashType, children } }
   const feedID = DB.feeds.push(feed)
   feed.id = feedID
   // push to feedByKey lookup array
   DB.feedByKey[key.toString('hex')] = feedID
+  const userID = user.id
+  feed.publisher = userID
   // Emit event
-  const NewFeed = { event: { data: [feedID], method: 'NewFeed' } }
+  const NewFeed = { event: { data: [feedID], method: 'FeedPublished' } }
   handlers.forEach(handler => handler([NewFeed]))
-
-// Publish PLAN
-  const userID = DB.userByAddress[user.address]
-  plan.publisher = userID
+}
+async function _publishPlan (user, { nonce }, status, args) {
+  const [ plan ] = args
+  const { feedID, ranges } =  plan
+  const userID = user.id
+  plan.supporter = userID // or patron?
   plan.feed = feedID
+  plan.ranges = ranges
   const planID = DB.plans.push(plan)
   plan.id = planID
   // Add planID to unhostedPlans
   DB.unhostedPlans.push(planID)
   // Find hoster & encoder
-  makeNewContract({encoderID: null, hosterID: null, planID: planID})
+  makeNewContract({planID})
   // Emit event
   const NewPlan = { event: { data: [planID], method: 'NewPlan' } }
   handlers.forEach(handler => handler([NewPlan]))
 }
 async function _registerHoster(user, { nonce }, status, args) {
   const [hosterKey] = args
-  const userID = DB.userByAddress[user.address]
-  DB.users[userID - 1].hosterKey = hosterKey
-  DB.hosters.push(userID)
-  makeNewContract({ encoderID: null, hosterID: userID, planID: null})
+  const userID = user.id
+  DB.users[userID - 1].hosterKey = hosterKey.toString('hex')
+  DB.users[userID - 1].hoster = true
+  DB.idleHosters.push(userID)
+  makeNewContract()
 }
 async function _registerEncoder (user, { nonce }, status, args) {
   const [encoderKey] = args
-  const userID = DB.userByAddress[user.address]
-  DB.users[userID - 1].encoderKey = encoderKey
-  DB.encoders.push(userID)
-  makeNewContract({ encoderID: userID, hosterID: null, planID: null})
+  const userID = user.id
+  DB.users[userID - 1].encoderKey = encoderKey.toString('hex')
+  DB.users[userID - 1].encoder = true
+  DB.idleEncoders.push(userID)
+  makeNewContract()
 }
-async function _registerAttestor (user, { nonce }, status) {
-  const userID = DB.userByAddress[user.address]
-  DB.attestors.push(userID)
+async function _registerAttestor (user, { nonce }, status, args) {
+  const [attestorKey] = args
+  const userID = user.id
+  DB.users[userID - 1].attestorKey = attestorKey.toString('hex')
+  DB.users[userID - 1].attestor = true
+  DB.idleAttestors.push(userID)
+  checkAttestorJobs()
+  makeNewContract()
 }
 async function _encodingDone (user, { nonce }, status, args) {
   const [ contractID ] = args
   DB.contractsEncoded.push(contractID)
+  const contract = DB.contracts[contractID - 1]
+  const encoderIDs = contract.encoders
+  encoderIDs.forEach(encoderID => { if (!DB.idleEncoders.includes(encoderID)) DB.idleEncoders.push(encoderID) })
 }
 async function _hostingStarts (user, { nonce }, status, args) {
   const [ contractID ] = args
   DB.contractsHosted.push(contractID)
-  const HostingStarted = { event: { data: [contractID], method: 'HostingStarted' } }
-  handlers.forEach(handler => handler([HostingStarted]))
+  const contract = DB.contracts[contractID - 1]
+  // attestor finished job, add them to idleAttestors again
+  const attestorID = contract.attestor
+  if (!DB.idleAttestors.includes(attestorID)) {
+    DB.idleAttestors.push(attestorID)
+    checkAttestorJobs()
+  }
+  const userID = user.id
+  const confirmation = { event: { data: [contractID, userID], method: 'HostingStarted' } }
+  handlers.forEach(handler => handler([confirmation]))
 }
-async function _requestProofOfStorageChallenge (user, { nonce }, status, args) {
-  const [ contractID ] = args
+async function _requestStorageChallenge (user, { nonce }, status, args) {
+  const [ contractID, hosterID ] = args
   const ranges = DB.contracts[contractID - 1].ranges // [ [0, 3], [5, 7] ]
+  // @TODO currently we check one chunk in each range => find better logic
   const chunks = ranges.map(range => getRandomInt(range[0], range[1] + 1))
-  const challenge = { contract: contractID, chunks }
-  const challengeID = DB.challenges.push(challenge)
-  challenge.id = challengeID
+  const storageChallenge = { contract: contractID, hoster: hosterID, chunks }
+  const storageChallengeID = DB.storageChallenges.push(storageChallenge)
+  storageChallenge.id = storageChallengeID
+  const attestorID = DB.idleAttestors.shift()
+  storageChallenge.attestor = attestorID
   // emit events
-  const newChallenge = { event: { data: [challengeID], method: 'NewProofOfStorageChallenge' } }
-  handlers.forEach(handler => handler([newChallenge]))
+  const challenge = { event: { data: [storageChallengeID], method: 'NewStorageChallenge' } }
+  handlers.forEach(handler => handler([challenge]))
 }
-async function _submitProofOfStorage (user, { nonce }, status, args) {
-  const [ challengeID, proof ] = args
-  const challenge = DB.challenges[challengeID - 1]
-  const isValid = validateProof(proof, challenge)
+async function _submitStorageChallenge (user, { nonce }, status, args) {
+  const [ storageChallengeID, proof ] = args
+  const storageChallenge = DB.storageChallenges[storageChallengeID - 1]
+  // attestor finished job, add them to idleAttestors again
+  const attestorID = storageChallenge.attestor
+  if (!DB.idleAttestors.includes(attestorID)) {
+    DB.idleAttestors.push(attestorID)
+    checkAttestorJobs()
+  }
+  // @TODO validate proof
+  const isValid = validateProof(proof, storageChallenge)
   let proofValidation
-  const data = [challengeID]
-  console.log('Submitting Proof Of Storage Challenge with ID:', challengeID)
-  if (isValid) proofValidation = { event: { data, method: 'ProofOfStorageConfirmed' } }
-  else proofValidation = { event: { data: [challengeID], method: 'ProofOfStorageFailed' } }
+  const data = [storageChallengeID]
+  console.log('StorageChallenge Proof for challenge:', storageChallengeID)
+  if (isValid) response = { event: { data, method: 'StorageChallengeConfirmed' } }
+  else response = { event: { data: [storageChallengeID], method: 'StorageChallengeFailed' } }
   // emit events
-  handlers.forEach(handler => handler([proofValidation]))
+  handlers.forEach(handler => handler([response]))
 }
-async function _requestAttestation (user, { nonce }, status, args) {
+async function _requestPerformanceChallenge (user, { nonce }, status, args) {
   const [ contractID ] = args
-  const [ attestorID ] = getRandom(DB.attestors)
-  const attestation = { contract: contractID , attestor: attestorID }
-  const attestationID = DB.attestations.push(attestation)
-  attestation.id = attestationID
-  const PoRChallenge = { event: { data: [attestationID], method: 'newAttestation' } }
-  handlers.forEach(handler => handler([PoRChallenge]))
+  const performanceChallenge = { contract: contractID }
+  const performanceChallengeID = DB.performanceChallenges.push(performanceChallenge)
+  performanceChallenge.id = performanceChallengeID
+  if (DB.idleAttestors.length >= 5) emitPerformanceChallenge(performanceChallenge)
+  else DB.attestorJobs.push({ fnName: 'emitPerformanceChallenge', opts: performanceChallenge })
 }
-async function _submitAttestationReport (user, { nonce }, status, args) {
-  const [ attestationID, report ] = args
-  console.log('Submitting Proof Of Retrievability Attestation with ID:', attestationID)
+
+async function _submitPerformanceChallenge (user, { nonce }, status, args) {
+  const [ performanceChallengeID, report ] = args
+  console.log(`Performance Challenge proof by attestor: ${user.id} for challenge: ${performanceChallengeID}`)
+  const performanceChallenge = DB.performanceChallenges[performanceChallengeID - 1]
+  // attestor finished job, add them to idleAttestors again
+  const attestorID = user.id
+  if (!DB.idleAttestors.includes(attestorID)) {
+    DB.idleAttestors.push(attestorID)
+    checkAttestorJobs()
+  }
   // emit events
-  if (report) PoR = { event: { data: [attestationID], method: 'AttestationReportConfirmed' } }
-  else PoR = { event: { data: [attestationID], method: 'AttestationReportFailed' } }
-  handlers.forEach(handler => handler([PoR]))
+  if (report) response = { event: { data: [performanceChallengeID], method: 'performanceChallengeConfirmed' } }
+  else response = { event: { data: [performanceChallengeID], method: 'performanceChallengeFailed' } }
+  handlers.forEach(handler => handler([response]))
 }
 
 /******************************************************************************
@@ -205,45 +248,59 @@ function getRandomInt(min, max) {
   max = Math.floor(max);
   return Math.floor(Math.random() * (max - min)) + min; //The maximum is exclusive and the minimum is inclusive
 }
-function validateProof (proof, challenge) {
-  const chunks = challenge.chunks
-  console.log('Validating the proof of storage for chunks:', chunks)
-  const proofChunks = proof.map(chunkProof => chunkProof.index)
-  if (`${chunks}` === `${proofChunks}`) return true
+function validateProof (proof, storageChallenge) {
+  const chunks = storageChallenge.chunks
+  if (`${chunks.length}` === `${proof.length}`) return true
   else return false
 }
-function makeNewContract (opts) {
+////////////////////////////////////////////////////////////////////////////
+function makeNewContract (planID) {
   // Find an unhosted plan
-  let { encoderID, hosterID, planID } = opts
   const unhosted = DB.unhostedPlans
-  if (!planID && unhosted.length) [planID] = getRandom(unhosted)
+  if (!planID && unhosted.length) [planID, pos] = getRandom(unhosted)
   const selectedPlan = DB.plans[planID - 1]
   if (!selectedPlan) return console.log('current lack of demand for hosting plans')
-
-  // Pair hoster and encoder
-  if (hosterID && DB.encoders.length) [encoderID] = getRandom(DB.encoders)
-  else if (encoderID && DB.hosters.length) [hosterID] = getRandom(DB.hosters)
-  else if (!hosterID && !encoderID && DB.encoders.length && DB.hosters.length) {
-    [encoderID] = getRandom(DB.encoders)
-    [hosterID] = getRandom(DB.hosters)
-  }
-  if (!encoderID) return console.log('missing encoder')
-  if (!hosterID) return console.log('missing hoster')
+  // Get hosters, encoders and attestors
+  const encoders  = DB.idleEncoders
+  const hosters   = DB.idleHosters
+  const attestors = DB.idleAttestors
+  if (encoders.length <= 3) return console.log(`missing encoders`)
+  if (hosters.length <= 3) return console.log(`missing hosters`)
+  if (!attestors.length) return console.log(`missing attestors`)
 
   // Make a new contract
   const contract = {
     plan: planID,
-    ranges: [ [0, 3], [5, 7] ],
-    encoder: encoderID,
-    hoster: hosterID
+    ranges: selectedPlan.ranges,
+    encoders: encoders.splice(0,3),
+    hosters: hosters.splice(0,3),
+    attestor: attestors.shift()
   }
+  unhosted.forEach((id, i) => { if (id === planID) unhosted.splice(i, 1) })
+  // [idleEncoders, idleHosters, idleAttestors] = [ [], [], [] ]
+  console.log('New contract', contract)
   const contractID = DB.contracts.push(contract)
   contract.id = contractID
-
   // remove planID from unhostedPlans
   // when all contracts for certain plan are hosted => push planID to hostedPlans
   DB.unhostedPlans.splice(planID, 1)
   const NewContract = { event: { data: [contractID], method: 'NewContract' } }
   handlers.forEach(handler => handler([NewContract]))
-
+}
+////////////////////////////////////////////////////////////////////////////
+function checkAttestorJobs () {
+  if (DB.attestorJobs.length) {
+    const next = DB.attestorJobs[0]
+    if (next.fnName === 'emitPerformanceChallenge' && DB.idleAttestors.length >= 5) {
+      DB.attestorJobs.shift()
+      emitPerformanceChallenge(next.opts)
+    }
+  }
+}
+////////////////////////////////////////////////////////////////////////////
+function emitPerformanceChallenge (performanceChallenge) {
+  performanceChallenge.attestors = DB.idleAttestors.splice(0, 5)
+  const performanceChallengeID = performanceChallenge.id
+  const challenge = { event: { data: [performanceChallengeID], method: 'NewPerformanceChallenge' } }
+  handlers.forEach(handler => handler([challenge]))
 }

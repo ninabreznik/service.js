@@ -8,6 +8,7 @@ const envPaths = require('env-paths')
 const path = require('path')
 const fs = require('fs-extra')
 const levelup = require('levelup')
+const encode = require('encoding-down')
 const memdown = require('memdown')
 const { Keyring } = require('@polkadot/api')
 const keyring = new Keyring({ type: 'sr25519' })
@@ -15,6 +16,7 @@ const keyring = new Keyring({ type: 'sr25519' })
 const DEFAULT_SDK_APPLICATION = 'datdot-account'
 const NAMESPACE = 'datdot-account'
 const IDENTITY_NAME = 'identity'
+
 
 module.exports = class Account {
   constructor ({ sdk, EncoderDecoder, application, persist }) {
@@ -29,7 +31,7 @@ module.exports = class Account {
     this.persist = persist
 		this.application = application
 
-    this.nonce = 0
+    this.nonce = 0n
 
     this.hoster = null
     this.encoder = null
@@ -74,7 +76,7 @@ module.exports = class Account {
 
     if (!db) {
       const storage = this.persist ? path.resolve(this.storageLocation, './hosterDB') : memdown()
-      db = levelup(storage)
+      db = levelup(encode(storage, {valueEncoding: 'binary'}))
     }
 
     this.hoster = await Hoster.load({ sdk, db, EncoderDecoder, ...opts })
@@ -127,20 +129,20 @@ module.exports = class Account {
     return this.attestor.attest(feedKey, index)
   }
 
-  async encodeFor (hosterIdentity, feedKey, ranges) {
-    return this.encoder.encodeFor(hosterIdentity, feedKey, ranges)
-  }
+  // async encodeFor (hosterIdentity, attestorKey, feedKey, ranges) {
+  //   return this.encoder.encodeFor(hosterIdentity, attestorKey, feedKey, ranges)
+  // }
 
-  async hostFeed (feedKey, encoderIdentity, plan) {
-    return this.hoster.addFeed(feedKey, encoderIdentity, plan)
-  }
+  // async hostFeed (feedKey, encoderIdentity, plan) {
+  //   return this.hoster.addFeed(feedKey, encoderIdentity, plan)
+  // }
 
   async stopHostingFeed (feedKey) {
     return this.hoster.removeFeed(feedKey)
   }
 
   async getHostingProof (feedKey, index) {
-    const { encoded, proof, merkleProof } = await this.hoster.getProofOfStorage(feedKey, index)
+    const { encoded, proof, merkleProof } = await this.hoster.getStorageChallenge(feedKey, index)
 
     return { index, encoded, proof, feed: feedKey }
   }

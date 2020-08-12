@@ -3,7 +3,7 @@ const intercept = require('intercept-hypercore-storage')
 const ENCODED_PREFIX = 0
 const DECODED_PREFIX = 1
 const PROOF_PREFIX = 2
-
+var stuff = { storeEnc: [], storeDec: [], getEnc: [], getDec:[] }
 module.exports = class HosterStorage {
   /**
   EncoderDecoder is an object with `async encode(rawData)` and `async decode(encodedData)`
@@ -24,8 +24,14 @@ module.exports = class HosterStorage {
   async storeEncoded (index, proof, encoded, nodes, signature) {
     // Get the decoded data at the index
     // In parallel, decode the encoded data
-    const decoded = this.EncoderDecoder.decode(encoded)
-
+    encoded = Buffer.from(encoded)
+    console.log("STOOOOOOOOOOOOOOOORE ENCODED", encoded)
+    console.log("STOOOOOOOOOOOOOOOORE ENCODED to STRING", encoded.toString())
+    const decoded = await this.EncoderDecoder.decode(encoded)
+    console.log("STOOOOOOOOOOOOOOOORE DECODED", decoded)
+    console.log("STOOOOOOOOOOOOOOOORE DECODED to STRING", decoded.toString())
+    stuff.storeEnc[index] = encoded
+    stuff.storeDec[index] = decoded
     const packet = {
       index,
       value: decoded,
@@ -49,7 +55,7 @@ module.exports = class HosterStorage {
   }
 
   // Invoked by whoever to test that the hoster is actually hosting stuff
-  async getProofOfStorage (index) {
+  async getStorageChallenge (index) {
     const [encoded, proof] = await Promise.all([
       this._getEncoded(index),
       this._getProof(index)
@@ -68,8 +74,40 @@ module.exports = class HosterStorage {
       .then(async (encoded) => {
         // Got encoded data!
         // Decode and return it
-        const decoded = await this.EncoderDecoder.decode(encoded)
+        const enc = stuff.storeEnc[index]
+        const dec = stuff.storeDec[index]
+        console.log('------------------------------------------------')
+        console.log('A: LOADED ENCODEDs type:')
+        console.log('------------------------------------------------')
+        console.log(typeof encoded)
+        console.log('------------------------------------------------')
+        console.log('B: LOADED ENCODED:')
+        console.log('------------------------------------------------')
+        console.log(encoded)
+        console.log('------------------------------------------------')
+        console.log('C: ORIGINAL ENCODED to STRING:')
+        console.log('------------------------------------------------')
+        console.log(enc.toString())
+        const encoded2 = Buffer.from(encoded, 'binary')
+        console.log('------------------------------------------------')
+        console.log('D: BUFFERIFIED(binary) ENCODED to STRING:')
+        console.log('------------------------------------------------')
+        console.log(encoded2.toString())
+        console.log('------------------------------------------------')
+        console.log('E: ORIGINAL ENCODED to HEX:')
+        console.log('------------------------------------------------')
+        console.log(enc.toString('hex'))
+        console.log('------------------------------------------------')
+        console.log('F: BUFFERIFIED(binary) ENCODED to HEX:')
+        console.log('------------------------------------------------')
+        console.log(encoded2.toString('hex'))
+        console.log('------------------------------------------------')
+        console.log('C === B', enc.toString() === encoded)
+        console.log('C === D', enc.toString() === encoded2.toString())
+        console.log('E === F', enc.toString('hex') === encoded2.toString('hex'))
 
+        const decoded = await this.EncoderDecoder.decode(encoded)
+        console.log('DECOOOOOODED', decoded)
         return decoded
       }, async () => {
         // Key doesn't exist? Try to get decoded version

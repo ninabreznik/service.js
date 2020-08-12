@@ -5,6 +5,7 @@ const ndjson = require('ndjson')
 const { PassThrough } = require('stream')
 const pump = require('pump')
 const p2plex = require('p2plex')
+const { once } = require('events')
 const { seedKeygen } = require('noise-peer')
 const HosterStorage = require('../hoster-storage')
 const NAMESPACE = 'datdot-hoster'
@@ -15,6 +16,7 @@ const DEFAULT_OPTS = {
   watch: true
 }
 const ANNOUNCE = { announce: true, lookup: false }
+const EncoderDecoder = require('../EncoderDecoder')
 
 module.exports = class Hoster {
   constructor ({
@@ -36,33 +38,33 @@ module.exports = class Hoster {
     this.EncoderDecoder = EncoderDecoder
   }
 
-  async addFeed (key, encoderKey, opts) {
-    await this.setOpts(key, opts)
-    await this.addKey(key, opts)
-    await this.loadFeedData(key)
-    await this.listenEncoder(encoderKey, key)
+  async addFeed ({feedKey, attestorKey, plan}) {
+    await this.setOpts(feedKey, plan)
+    await this.addKey(feedKey, plan)
+    await this.loadFeedData(feedKey)
+    await this.getEncodedDataFromAttestor(attestorKey, feedKey)
   }
 
-  async listenEncoder (encoderKey, key) {
+  async getEncodedDataFromAttestor (attestorKey, key) {
     // TODO: Derive key by combining our public keys and feed key
     const feed = this.Hypercore(key, { sparse: true })
     const topic = key
-    const peer = await this.communication.findByTopicAndPublicKey(topic, encoderKey, ANNOUNCE)
-
+    const peer = await this.communication.findByTopicAndPublicKey(topic, attestorKey, ANNOUNCE)
     const resultStream = new PassThrough({ objectMode: true })
     const rawResultStream = ndjson.parse()
     const confirmStream = ndjson.serialize()
 
-    const encodingStream = peer.receiveStream(topic)
+    const verifiedStream = peer.receiveStream(topic)
 
-    pump(confirmStream, encodingStream, rawResultStream, resultStream)
+    pump(confirmStream, verifiedStream, rawResultStream, resultStream)
 
     for await (const message of resultStream) {
+      // @TODO: decode and verify each chunk (to see if it belongs to the feed) && verify the signature
       const { type } = message
-      if (type === 'encoded') {
+      if (type === 'verified') {
         const { feed, index, encoded, proof, nodes, signature } = message
-        const key = Buffer.from(feed)
 
+        const key = Buffer.from(feed)
         const isExisting = await this.hasKey(key)
 
         // Fix up the JSON serialization by converting things to buffers
@@ -165,7 +167,7 @@ module.exports = class Hoster {
   }
 
   async watchFeed (feed) {
-    console.warn('Watching is not supported since we cannot ask the chain for encoders')
+    console.warn('Watching is not supported since we cannot ask the chain for attestors')
     /* const stringKey = feed.key.toString('hex')
     if (this.watchingFeeds.has(stringKey)) return
     this.watchingFeeds.add(stringKey)
@@ -182,10 +184,39 @@ module.exports = class Hoster {
     return storage.storeEncoded(index, proof, encoded, nodes, signature)
   }
 
-  async getProofOfStorage (key, index) {
+  async getStorageChallenge (key, index) {
     const storage = await this.getStorage(key)
-    return storage.getProofOfStorage(index)
+    return storage.getStorageChallenge(index)
   }
+
+  async sendStorageChallenge ({storageChallengeID, feedKey, attestorKey, proofs}) {
+    const topic = feedKey
+    const peer = await this.communication.findByTopicAndPublicKey(topic, attestorKey, { announce: false, lookup: true })
+    const resultStream = ndjson.serialize()
+    const confirmStream = ndjson.parse()
+
+    const encodingStream = peer.createStream(topic)
+    pump(resultStream, encodingStream, confirmStream)
+    // @TODO add event signature in ext message after chunk x
+
+    resultStream.write({
+      type: 'StorageChallenge',
+      feedKey,
+      storageChallengeID,
+      proofs
+    })
+    // --------------------------------------------------------------
+
+    // Wait for the attestor to tell us they've handled the data
+    // TODO: Set up timeout for when peer doesn't respond to us
+    const [response] = await once(confirmStream, 'data')
+
+    if (response.error) {
+      throw new Error(response.error)
+      // @TODO what happens if proof doesn't get verified due to an error? Try again?
+    }
+  }
+
 
   async hasKey (key) {
     const stringKey = key.toString('hex')

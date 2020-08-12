@@ -33,7 +33,7 @@ module.exports = class Node {
     this.attestor = null
     this.sdkIdentity = null
     this.chainKeypair = null
-    this.nonce = 0
+    this.nonce = 0n
   }
 
   async init () {
@@ -126,7 +126,7 @@ module.exports = class Node {
   }
 
   async getHostingProof (feedKey, index) {
-    const { encoded, proof } = await this.hoster.getProofOfStorage(feedKey, index)
+    const { encoded, proof } = await this.hoster.getStorageChallenge(feedKey, index)
 
     return { index, encoded, proof, feed: feedKey }
   }
